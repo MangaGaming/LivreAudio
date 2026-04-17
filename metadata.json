@@ -1,0 +1,6 @@
+{
+  "name": "LivrAudio PDF",
+  "description": "Transformez vos PDF en livres audio segmentés. Application mobile (PWA) avec synthèse vocale.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
