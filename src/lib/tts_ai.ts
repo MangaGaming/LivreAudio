@@ -24,9 +24,34 @@ export async function generateAudio(text: string, voiceId: string): Promise<Arra
     },
   });
 
-  const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+  // Log response for debugging if needed
+  console.log("Gemini TTS Response:", response);
+
+  if (!response.candidates || response.candidates.length === 0) {
+    throw new Error(`Gemini candidate empty. Finish reason: ${response.candidates?.[0]?.finishReason || 'Unknown'}`);
+  }
+
+  // Iterate through parts to find audio data
+  let base64Audio: string | undefined;
+  for (const part of response.candidates[0].content?.parts || []) {
+    if (part.inlineData?.data && part.inlineData.mimeType?.startsWith('audio/')) {
+      base64Audio = part.inlineData.data;
+      break;
+    }
+  }
+
   if (!base64Audio) {
-    throw new Error("No audio data returned from Gemini");
+    // Fallback search in all parts if mimeType check is too strict
+    for (const part of response.candidates[0].content?.parts || []) {
+      if (part.inlineData?.data) {
+        base64Audio = part.inlineData.data;
+        break;
+      }
+    }
+  }
+
+  if (!base64Audio) {
+    throw new Error(`No audio data returned from Gemini. Text length: ${text.length}`);
   }
 
   const binaryString = atob(base64Audio);

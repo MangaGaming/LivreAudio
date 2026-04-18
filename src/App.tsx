@@ -15,7 +15,12 @@ import {
   Download,
   Moon,
   Save,
-  Clock
+  Clock,
+  Library,
+  ChevronLeft,
+  ChevronRight,
+  Trash2,
+  Plus
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { get, set, keys, del } from 'idb-keyval';
@@ -31,8 +36,17 @@ interface VoiceOption {
   lang: string;
 }
 
+interface Book {
+  id: string;
+  name: string;
+  text: string;
+  lastUpdated: number;
+  lastIndex: number;
+}
+
 const STORAGE_KEY_POS = 'livraudio_pos';
 const STORAGE_KEY_FILE = 'livraudio_filename';
+const STORAGE_KEY_BOOKS = 'livraudio_library';
 
 export default function App() {
   const [file, setFile] = useState<File | null>(null);
@@ -48,6 +62,9 @@ export default function App() {
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption | null>(null);
   const [progress, setProgress] = useState(0);
   const [cachedIndices, setCachedIndices] = useState<Set<number>>(new Set());
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [library, setLibrary] = useState<Book[]>([]);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const audioStartTimeRef = useRef<number>(0);
@@ -87,16 +104,90 @@ export default function App() {
   }, [currentChunkIndex, fileName]);
 
   // Refresh cache status
-  const refreshCacheStatus = useCallback(async () => {
+  const refreshCacheStatus = useCallback(async (name?: string) => {
+    const targetName = name || fileName;
+    if (!targetName) return;
+    
     const allKeys = await keys();
     const indices = new Set<number>();
     allKeys.forEach(k => {
-      if (typeof k === 'string' && k.startsWith('audio_')) {
-        indices.add(parseInt(k.replace('audio_', '')));
+      const keyStr = String(k);
+      const prefix = `audio_${targetName}_`;
+      if (keyStr.startsWith(prefix)) {
+        indices.add(parseInt(keyStr.replace(prefix, '')));
       }
     });
     setCachedIndices(indices);
+  }, [fileName]);
+
+  // Load Library
+  useEffect(() => {
+    const savedLibrary = localStorage.getItem(STORAGE_KEY_BOOKS);
+    if (savedLibrary) {
+      try {
+        setLibrary(JSON.parse(savedLibrary));
+      } catch(e) {}
+    }
   }, []);
+
+  // Save Library
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_BOOKS, JSON.stringify(library));
+  }, [library]);
+
+  const selectBook = useCallback((book: Book) => {
+    setFileName(book.name);
+    const textChunks = chunkText(book.text);
+    setChunks(textChunks);
+    setCurrentChunkIndex(book.lastIndex);
+    setFile(null); // Mark as loaded from library
+    refreshCacheStatus(book.name);
+  }, [refreshCacheStatus]);
+
+  const removeBook = useCallback((id: string) => {
+    setLibrary(prev => prev.filter(b => b.id !== id));
+    if (fileName && library.find(b => b.id === id)?.name === fileName) {
+      setChunks([]);
+      setFileName('');
+    }
+  }, [fileName, library]);
+
+  const handleFileUpload = useCallback(async (acceptedFiles: File[]) => {
+    const uploadedFile = acceptedFiles[0];
+    if (!uploadedFile) return;
+
+    setIsProcessing(true);
+    setChunks([]);
+    setErrorMsg(null);
+    
+    try {
+      const text = await extractTextFromPdf(uploadedFile);
+      const textChunks = chunkText(text);
+      setChunks(textChunks);
+      setFileName(uploadedFile.name);
+      setCurrentChunkIndex(0);
+
+      const newBook: Book = {
+        id: Math.random().toString(36).substr(2, 9),
+        name: uploadedFile.name,
+        text: text,
+        lastUpdated: Date.now(),
+        lastIndex: 0
+      };
+
+      setLibrary(prev => {
+        const filtered = prev.filter(b => b.name !== uploadedFile.name);
+        return [newBook, ...filtered];
+      });
+
+      refreshCacheStatus(uploadedFile.name);
+    } catch (error) {
+      console.error("Processing error:", error);
+      setErrorMsg("Impossible de lire ce PDF.");
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [refreshCacheStatus]);
 
   useEffect(() => {
     refreshCacheStatus();
@@ -107,8 +198,9 @@ export default function App() {
   const prefetchChunk = useCallback(async (index: number) => {
     if (index >= chunks.length || index < 0) return;
     if (prefetchLockRef.current.has(index)) return;
-    
-    const cacheKey = `audio_${index}`;
+    if (!selectedVoice || selectedVoice.type !== 'ai' || !fileName) return;
+
+    const cacheKey = `audio_${fileName}_${index}`;
     const existing = await get(cacheKey);
     if (existing) return;
 
@@ -124,36 +216,7 @@ export default function App() {
     } finally {
       prefetchLockRef.current.delete(index);
     }
-  }, [chunks, selectedVoice, refreshCacheStatus]);
-
-  const handleFileUpload = useCallback(async (acceptedFiles: File[]) => {
-    const uploadedFile = acceptedFiles[0];
-    if (!uploadedFile) return;
-
-    setFile(uploadedFile);
-    setFileName(uploadedFile.name);
-    setIsProcessing(true);
-    setChunks([]);
-    
-    // Clear old cache for new files
-    const allKeys = await keys();
-    for (const k of allKeys) await del(k);
-    
-    try {
-      const text = await extractTextFromPdf(uploadedFile);
-      const textChunks = chunkText(text);
-      setChunks(textChunks);
-      
-      const savedFile = localStorage.getItem(STORAGE_KEY_FILE);
-      if (savedFile !== uploadedFile.name) {
-        setCurrentChunkIndex(0);
-      }
-    } catch (error) {
-      console.error("Processing error:", error);
-    } finally {
-      setIsProcessing(false);
-    }
-  }, []);
+  }, [chunks, selectedVoice, refreshCacheStatus, fileName]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: (acceptedFiles) => handleFileUpload(acceptedFiles),
@@ -179,12 +242,21 @@ export default function App() {
     stopPlayback();
     setIsBuffering(true);
     setCurrentChunkIndex(index);
+
+    // Sync library index
+    setLibrary(prev => prev.map(book => 
+      book.name === fileName ? { ...book, lastIndex: index, lastUpdated: Date.now() } : book
+    ));
     
     try {
       const chunk = chunks[index];
+      if (!chunk.text.trim()) {
+        if (index < chunks.length - 1) return startPlayback(index + 1);
+        throw new Error("Contenu vide détecté.");
+      }
       
       if (selectedVoice.type === 'ai') {
-        const cacheKey = `audio_${index}`;
+        const cacheKey = `audio_${fileName}_${index}`;
         let audioData = await get(cacheKey);
         
         if (!audioData) {
@@ -245,6 +317,7 @@ export default function App() {
       }
     } catch (error) {
       console.error("Playback error:", error);
+      setErrorMsg(error instanceof Error ? error.message : "Erreur de lecture inconnue");
     } finally {
       setIsBuffering(false);
     }
@@ -284,7 +357,8 @@ export default function App() {
   };
 
   const downloadChunk = async (index: number) => {
-    const cacheKey = `audio_${index}`;
+    if (!fileName) return;
+    const cacheKey = `audio_${fileName}_${index}`;
     let data = await get(cacheKey);
     if (!data) {
       if (!selectedVoice || selectedVoice.type !== 'ai') return;
@@ -330,12 +404,22 @@ export default function App() {
   };
 
   const runNightMode = async () => {
-    if (isNightMode) return;
+    if (isNightMode || !fileName) return;
     setIsNightMode(true);
     try {
       for (let i = 0; i < chunks.length; i++) {
         if (!cachedIndices.has(i)) {
-          await prefetchChunk(i);
+          const cacheKey = `audio_${fileName}_${i}`;
+          const existing = await get(cacheKey);
+          if (!existing && selectedVoice?.type === 'ai') {
+            try {
+              const data = await generateAudio(chunks[i].text, selectedVoice.id);
+              await set(cacheKey, data);
+              await refreshCacheStatus();
+            } catch (e) {
+              console.error(`Error generating chunk ${i}`, e);
+            }
+          }
         }
       }
     } finally {
@@ -344,40 +428,107 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-orange-500/30">
-      <nav className="border-b border-white/10 px-6 py-4 flex items-center justify-between backdrop-blur-md sticky top-0 z-50">
-        <div className="flex items-center gap-2">
-          <div className="p-2 bg-orange-600 rounded-lg">
-            <Headphones size={20} className="text-white" />
-          </div>
-          <span className="font-bold text-xl tracking-tight">LivrAudio</span>
-        </div>
-        <div className="flex items-center gap-4">
-          {file && (
-            <button 
-              onClick={runNightMode}
-              disabled={isNightMode}
-              className={cn(
-                "flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold transition-all shadow-lg",
-                isNightMode ? "bg-orange-500/20 text-orange-500" : "bg-white/5 hover:bg-white/10"
-              )}
-            >
-              {isNightMode ? <Loader2 size={14} className="animate-spin" /> : <Moon size={14} />}
-              <span>{isNightMode ? "Génération continue..." : "Mode Nuit"}</span>
-            </button>
-          )}
-          {file && (
-            <button 
-              onClick={() => { setFile(null); setChunks([]); stopPlayback(); setFileName(''); }}
-              className="text-sm text-white/50 hover:text-white"
-            >
-              Nouveau livre
-            </button>
-          )}
-        </div>
-      </nav>
+    <div className="min-h-screen bg-[#050505] text-white flex overflow-hidden selection:bg-orange-500/30">
+      {/* Sidebar Library */}
+      <AnimatePresence initial={false}>
+        {isSidebarOpen && (
+          <motion.aside
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: 320, opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            className="h-screen bg-[#0a0a0a] border-r border-white/5 flex flex-col shrink-0 z-50 overflow-hidden"
+          >
+            <div className="p-6 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center">
+                  <Headphones size={18} className="text-black" />
+                </div>
+                <h2 className="font-bold text-lg tracking-tight">Bibliothèque</h2>
+              </div>
+            </div>
 
-      <main className="max-w-5xl mx-auto p-6 md:p-12">
+            <div className="px-6 pb-4">
+               <div {...getRootProps()} className={cn(
+                  "border-2 border-dashed border-white/10 p-4 rounded-2xl cursor-pointer hover:border-orange-500/50 transition-all flex flex-col items-center gap-2 group",
+                  isDragActive && "border-orange-500 bg-orange-500/5"
+               )}>
+                  <input {...getInputProps()} />
+                  <div className="w-10 h-10 bg-white/5 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Plus size={20} className="text-orange-500" />
+                  </div>
+                  <span className="text-[10px] uppercase font-bold tracking-widest opacity-40">Ajouter un PDF</span>
+               </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-4 py-2 space-y-2">
+              {library.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-center p-8 opacity-20">
+                  <FileText size={48} className="mb-4" />
+                  <p className="text-xs">Aucun livre dans votre bibliothèque.</p>
+                </div>
+              ) : (
+                library.map(book => (
+                  <div 
+                    key={book.id}
+                    className={cn(
+                      "p-4 rounded-2xl group transition-all flex items-center gap-4 cursor-pointer relative",
+                      fileName === book.name ? "bg-orange-500/10 border border-orange-500/20" : "hover:bg-white/5 border border-transparent"
+                    )}
+                    onClick={() => selectBook(book)}
+                  >
+                    <div className={cn(
+                      "w-10 h-14 rounded shadow-lg flex items-center justify-center overflow-hidden shrink-0",
+                      fileName === book.name ? "bg-orange-500/20" : "bg-white/5"
+                    )}>
+                      <FileText size={20} className={cn(fileName === book.name ? "text-orange-500" : "opacity-40")} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className={cn("text-xs font-bold truncate", fileName === book.name ? "text-orange-500" : "text-white")}>{book.name.replace('.pdf', '')}</h4>
+                      <p className="text-[10px] text-white/30 uppercase tracking-widest mt-1">
+                        Partie {book.lastIndex + 1}
+                      </p>
+                    </div>
+                    
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); removeBook(book.id); }}
+                      className="opacity-0 group-hover:opacity-40 hover:!opacity-100 p-2 hover:bg-red-500/10 hover:text-red-500 rounded-lg transition-all"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="p-6 border-t border-white/5">
+              <button 
+                onClick={runNightMode}
+                disabled={isNightMode || !fileName}
+                className={cn(
+                  "w-full flex items-center justify-center gap-2 py-4 rounded-2xl transition-all text-[11px] font-black uppercase tracking-widest shadow-lg",
+                  isNightMode ? "bg-orange-500/20 text-orange-500" : "bg-white/5 hover:bg-white/10"
+                )}
+              >
+                {isNightMode ? <Loader2 size={14} className="animate-spin" /> : <Moon size={14} />}
+                <span>{isNightMode ? "Génération..." : "Mode Nuit"}</span>
+              </button>
+            </div>
+          </motion.aside>
+        )}
+      </AnimatePresence>
+
+      <main className="flex-1 relative overflow-y-auto h-screen scroll-smooth">
+        <button 
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          className={cn(
+            "fixed top-1/2 -translate-y-1/2 z-[200] w-6 h-20 bg-[#0a0a0a] border-y border-r border-white/10 rounded-r-xl flex items-center justify-center hover:bg-orange-500/10 hover:border-orange-500/20 transition-all text-white/40 hover:text-orange-500",
+            isSidebarOpen ? "left-[320px]" : "left-0"
+          )}
+        >
+          {isSidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+        </button>
+
+        <div className="fixed inset-0 bg-[#050505] -z-10 overflow-hidden" />
         <AnimatePresence mode="wait">
           {!file && !isProcessing ? (
             <motion.div
@@ -456,6 +607,13 @@ export default function App() {
                     {fileName.replace('.pdf', '')}
                   </h2>
                 </div>
+
+                {errorMsg && (
+                  <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-500 text-sm flex items-center justify-between">
+                    <span>{errorMsg}</span>
+                    <button onClick={() => setErrorMsg(null)} className="underline opacity-50 hover:opacity-100">Fermer</button>
+                  </div>
+                )}
 
                   <div className="relative p-12 bg-white/[0.02] border border-white/5 rounded-[48px] shadow-2xl min-h-[400px]">
                    <div className="absolute -left-10 top-20 opacity-5 select-none text-[200px] font-serif font-black italic">
@@ -551,10 +709,13 @@ export default function App() {
       </main>
 
       <AnimatePresence>
-        {file && !isProcessing && (
+        {fileName && !isProcessing && (
           <motion.div
             initial={{ y: 100 }} animate={{ y: 0 }} exit={{ y: 100 }}
-            className="fixed bottom-0 left-0 right-0 p-8 pointer-events-none z-[100]"
+            className={cn(
+              "fixed bottom-0 right-0 p-8 pointer-events-none z-[100] transition-all duration-500",
+              isSidebarOpen ? "left-[320px]" : "left-0"
+            )}
           >
             <div className="max-w-4xl mx-auto bg-[#111111]/90 backdrop-blur-3xl border border-white/10 p-5 rounded-[40px] shadow-2xl pointer-events-auto flex flex-col gap-5">
               <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">

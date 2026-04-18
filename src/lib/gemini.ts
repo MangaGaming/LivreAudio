@@ -8,11 +8,11 @@ export interface TextChunk {
 }
 
 /**
- * Splits a long text into chunks of roughly 5 minutes of speech.
- * 150 words/min * 5 chars/word * 5 mins = ~3750 chars.
- * Using 10000 chars as a larger chunk size to minimize fragmentation.
+ * Splits a long text into chunks of roughly 30 seconds of speech.
+ * 150 words/min * 6 chars/word * 0.5 mins = ~450 chars.
+ * Using 600 chars for a good balance between small segments and sentence coherence.
  */
-export function chunkText(text: string, chunkSize: number = 7500): TextChunk[] {
+export function chunkText(text: string, chunkSize: number = 600): TextChunk[] {
   const chunks: TextChunk[] = [];
   let currentPos = 0;
 
