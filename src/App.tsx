@@ -65,6 +65,7 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [library, setLibrary] = useState<Book[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [viewMode, setViewMode] = useState<'converter' | 'player'>('converter');
   
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const audioStartTimeRef = useRef<number>(0);
@@ -461,7 +462,28 @@ export default function App() {
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 py-2 space-y-2">
-              {library.length === 0 ? (
+              <div className="flex p-1 bg-white/5 rounded-xl mb-4">
+                <button 
+                  onClick={() => { setViewMode('converter'); setFile(null); setFileName(''); setChunks([]); stopPlayback(); }}
+                  className={cn(
+                    "flex-1 py-2 text-[10px] uppercase font-bold tracking-widest rounded-lg transition-all",
+                    viewMode === 'converter' ? "bg-orange-500 text-black shadow-lg" : "text-white/40 hover:text-white"
+                  )}
+                >
+                  Convertisseur
+                </button>
+                <button 
+                  onClick={() => setViewMode('player')}
+                  className={cn(
+                    "flex-1 py-2 text-[10px] uppercase font-bold tracking-widest rounded-lg transition-all",
+                    viewMode === 'player' ? "bg-orange-500 text-black shadow-lg" : "text-white/40 hover:text-white"
+                  )}
+                >
+                  Lecteur
+                </button>
+              </div>
+
+              {viewMode === 'player' && library.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-center p-8 opacity-20">
                   <FileText size={48} className="mb-4" />
                   <p className="text-xs">Aucun livre dans votre bibliothèque.</p>
@@ -530,186 +552,271 @@ export default function App() {
 
         <div className="fixed inset-0 bg-[#050505] -z-10 overflow-hidden" />
         <AnimatePresence mode="wait">
-          {!file && !isProcessing ? (
+          {viewMode === 'converter' ? (
             <motion.div
-              key="uploader"
+              key="converter-view"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="flex flex-col items-center justify-center min-h-[60vh] text-center"
+              className="max-w-4xl mx-auto pt-20"
             >
-              <div className="mb-8 max-w-2xl px-4">
-                <h1 className="text-5xl md:text-7xl font-bold mb-6 leading-tight tracking-tighter">
-                  Lecture <span className="text-orange-500 italic font-serif">Infinie</span>
-                </h1>
-                <p className="text-white/60 text-lg md:text-xl">
-                  Déposez un livre. Nous nous occupons du reste. Reprise automatique garantie.
-                </p>
+              <div className="text-center mb-16">
+                <h1 className="text-6xl font-black italic tracking-tighter mb-4">Studio LivrAudio</h1>
+                <p className="text-white/40 uppercase tracking-[0.3em] text-sm font-bold">Transformez vos écrits en ondes</p>
               </div>
 
-              <div 
-                {...getRootProps()} 
-                className={cn(
-                  "w-full max-w-xl p-12 border-2 border-dashed rounded-[40px] transition-all cursor-pointer group",
-                  isDragActive ? "border-orange-500 bg-orange-500/5" : "border-white/10 hover:border-white/20 hover:bg-white/[0.02]"
-                )}
-              >
-                <input {...getInputProps()} />
-                <div className="flex flex-col items-center gap-4">
-                  <div className="w-20 h-20 bg-white/5 rounded-3xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <FileText className="text-orange-500" size={40} />
-                  </div>
-                  <div className="space-y-1">
-                    <p className="font-medium text-xl">Sélectionnez votre PDF</p>
-                    <p className="text-white/40 text-sm">Votre progression est sauvegardée en local.</p>
+              {!fileName && !isProcessing ? (
+                <div {...getRootProps()} className={cn(
+                  "p-20 border-2 border-dashed rounded-[60px] cursor-pointer hover:border-orange-500/40 transition-all bg-white/[0.01] text-center",
+                  isDragActive && "border-orange-500 bg-orange-500/5 scale-105"
+                )}>
+                  <input {...getInputProps()} />
+                  <div className="flex flex-col items-center gap-6">
+                    <div className="w-24 h-24 bg-orange-500/10 rounded-[32px] flex items-center justify-center">
+                      <Plus className="text-orange-500" size={40} />
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-2xl font-bold">Importer un PDF</p>
+                      <p className="text-white/30 text-sm max-w-sm mx-auto">Votre livre sera découpé en segments de 30s optimisés pour le téléchargement.</p>
+                    </div>
                   </div>
                 </div>
-              </div>
-              
-              {fileName && !file && (
-                <div className="mt-12 flex flex-col items-center gap-2 text-white/30">
-                  <Clock size={20} />
-                  <p className="text-sm">Reprendre : <span className="text-orange-500 font-bold">{fileName}</span></p>
-                  <p className="text-[10px] uppercase tracking-widest">Dernière position : Partie {currentChunkIndex + 1}</p>
+              ) : isProcessing ? (
+                <div className="flex flex-col items-center justify-center gap-8 py-20">
+                  <div className="relative">
+                    <Loader2 className="animate-spin text-orange-500" size={64} />
+                    <div className="absolute inset-0 blur-3xl bg-orange-500/20 rounded-full" />
+                  </div>
+                  <h2 className="text-2xl font-medium tracking-tight">Analyse du PDF...</h2>
                 </div>
+              ) : (
+                <motion.div 
+                   initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}
+                   className="bg-white/[0.02] border border-white/10 rounded-[48px] p-12 overflow-hidden relative"
+                >
+                  <div className="absolute top-0 right-0 p-8">
+                     <button 
+                        onClick={() => { setFileName(''); setChunks([]); }}
+                        className="p-3 bg-white/5 hover:bg-white/10 rounded-full text-white/40 hover:text-white transition-all"
+                     >
+                        <Trash2 size={20} />
+                     </button>
+                  </div>
+                  
+                  <div className="flex items-center gap-6 mb-12">
+                     <div className="w-20 h-28 bg-orange-500/20 rounded-xl flex items-center justify-center shadow-2xl">
+                        <FileText size={48} className="text-orange-500" />
+                     </div>
+                     <div>
+                        <h2 className="text-4xl font-black truncate max-w-lg">{fileName.replace('.pdf', '')}</h2>
+                        <p className="text-orange-500 font-bold uppercase tracking-widest text-xs mt-2">{chunks.length} Segments prêts</p>
+                     </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
+                     <div className="p-8 bg-white/5 border border-white/5 rounded-3xl space-y-4">
+                        <h3 className="text-xs font-black uppercase tracking-widest text-white/40">Configuration</h3>
+                        <div className="space-y-4">
+                           <div className="space-y-2">
+                              <label className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Voix de synthèse</label>
+                              <select 
+                                value={selectedVoice?.id || ''} 
+                                onChange={(e) => {
+                                  const v = voices.find(v => v.id === e.target.value);
+                                  if (v) { setSelectedVoice(v); stopPlayback(); }
+                                }}
+                                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:ring-1 focus:ring-orange-500 appearance-none"
+                              >
+                                {voices.filter(v => v.type === 'ai').map(voice => (
+                                  <option key={voice.id} value={voice.id}>{voice.name}</option>
+                                ))}
+                              </select>
+                           </div>
+                           <button 
+                              onClick={runNightMode}
+                              disabled={isNightMode}
+                              className={cn(
+                                "w-full py-4 rounded-xl flex items-center justify-center gap-2 font-bold uppercase text-[10px] tracking-[0.2em] transition-all",
+                                isNightMode ? "bg-orange-500/20 text-orange-500 animate-pulse" : "bg-orange-500 text-black hover:bg-orange-400"
+                              )}
+                           >
+                              {isNightMode ? <Loader2 size={14} className="animate-spin" /> : <Moon size={14} />}
+                              {isNightMode ? "Génération massive..." : "Tout générer (Mode Nuit)"}
+                           </button>
+                        </div>
+                     </div>
+
+                     <div className="p-8 bg-white/5 border border-white/5 rounded-3xl space-y-4">
+                        <h3 className="text-xs font-black uppercase tracking-widest text-white/40">Progression</h3>
+                        <div className="grid grid-cols-5 gap-2 max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
+                           {chunks.map((_, i) => (
+                              <button 
+                                 key={i}
+                                 onClick={() => downloadChunk(i)}
+                                 className={cn(
+                                    "aspect-square rounded-lg flex items-center justify-center text-[10px] font-mono border transition-all",
+                                    cachedIndices.has(i) 
+                                       ? "bg-green-500/20 border-green-500/40 text-green-500" 
+                                       : "bg-white/5 border-white/10 text-white/30 hover:border-orange-500/50"
+                                 )}
+                              >
+                                 {cachedIndices.has(i) ? <Download size={12} /> : i + 1}
+                              </button>
+                           ))}
+                        </div>
+                     </div>
+                  </div>
+
+                  <div className="flex flex-col items-center gap-4 text-center opacity-40">
+                    <p className="text-xs font-medium">L'audio est sauvegardé dans votre bibliothèque locale.</p>
+                    <button 
+                       onClick={() => setViewMode('player')}
+                       className="text-[10px] uppercase font-bold tracking-[0.3em] hover:text-orange-500 transition-all flex items-center gap-2"
+                    >
+                       Passer au lecteur <ChevronRight size={12} />
+                    </button>
+                  </div>
+                </motion.div>
               )}
-            </motion.div>
-          ) : isProcessing ? (
-            <motion.div
-              key="loader"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex flex-col items-center justify-center min-h-[60vh] gap-8"
-            >
-              <div className="relative">
-                <Loader2 className="animate-spin text-orange-500" size={64} />
-                <div className="absolute inset-0 blur-3xl bg-orange-500/20 rounded-full" />
-              </div>
-              <h2 className="text-2xl font-medium tracking-tight">Analyse du livre en cours...</h2>
             </motion.div>
           ) : (
             <motion.div
-              key="player"
+              key="player-view"
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
-              className="grid grid-cols-1 lg:grid-cols-[1fr_350px] gap-8 items-start"
+              className={cn(
+                "grid grid-cols-1 gap-8 items-start max-w-4xl mx-auto",
+                fileName ? "lg:grid-cols-[1fr_350px]" : ""
+              )}
             >
-              <div className="space-y-8">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-4 text-orange-500 text-sm font-medium uppercase tracking-[0.2em] mb-2">
-                    <div className="flex items-center gap-2">
-                       <BookOpen size={14} />
-                       <span>Partie {currentChunkIndex + 1} / {chunks.length}</span>
+              {!fileName ? (
+                <div className="flex flex-col items-center justify-center min-h-[60vh] text-center opacity-40">
+                  <Library className="mb-6 opacity-20" size={80} />
+                  <h2 className="text-3xl font-black uppercase tracking-tighter mb-4">Lecteur LivrAudio</h2>
+                  <p className="text-sm max-w-sm">Sélectionnez un livre dans la bibliothèque à gauche pour commencer l'écoute.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-8">
+                    <div className="space-y-4">
+                      <h2 className="text-5xl md:text-6xl font-black tracking-tighter leading-none mb-2 break-words">
+                        {fileName.replace('.pdf', '')}
+                      </h2>
+                      <div className="flex items-center gap-3">
+                        <div className="px-3 py-1 bg-orange-500/10 border border-orange-500/20 rounded-full">
+                          <span className="text-orange-500 text-[10px] font-bold uppercase tracking-widest">{chunks.length} Segments</span>
+                        </div>
+                        <div className="px-3 py-1 bg-white/5 border border-white/10 rounded-full">
+                          <span className="text-white/40 text-[10px] font-bold uppercase tracking-widest">{selectedVoice?.name}</span>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-6">
-                    {fileName.replace('.pdf', '')}
-                  </h2>
-                </div>
 
-                {errorMsg && (
-                  <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl text-red-500 text-sm flex items-center justify-between">
-                    <span>{errorMsg}</span>
-                    <button onClick={() => setErrorMsg(null)} className="underline opacity-50 hover:opacity-100">Fermer</button>
-                  </div>
-                )}
-
-                  <div className="relative p-12 bg-white/[0.02] border border-white/5 rounded-[48px] shadow-2xl min-h-[400px]">
-                   <div className="absolute -left-10 top-20 opacity-5 select-none text-[200px] font-serif font-black italic">
-                      {currentChunkIndex + 1}
-                   </div>
-                  <div className="relative z-10 prose prose-invert prose-xl max-w-none text-white/70 leading-relaxed font-serif italic text-justify max-h-[500px] overflow-y-auto custom-scrollbar">
-                    {chunks[currentChunkIndex]?.text}
-                  </div>
-                  <div className="h-12 bg-gradient-to-t from-[#050505] to-transparent absolute bottom-0 left-0 right-0 pointer-events-none z-20" />
-                </div>
-              </div>
-
-              <div className="lg:sticky lg:top-28 space-y-6">
-                <div className="p-6 bg-white/[0.03] border border-white/10 rounded-[32px] space-y-6 backdrop-blur-xl">
-                  <div className="space-y-4">
-                    <label className="text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">Voice & Mode</label>
-                    <select 
-                      value={selectedVoice?.id || ''} 
-                      onChange={(e) => {
-                        const v = voices.find(v => v.id === e.target.value);
-                        if (v) { setSelectedVoice(v); stopPlayback(); }
-                      }}
-                      className="w-full bg-[#0a0a0a] border border-white/10 rounded-2xl px-4 py-3 text-sm focus:ring-1 focus:ring-orange-500 appearance-none cursor-pointer"
-                    >
-                      <optgroup label="✨ Intelligence Artificielle">
-                        {voices.filter(v => v.type === 'ai').map(voice => (
-                          <option key={voice.id} value={voice.id}>{voice.name}</option>
-                        ))}
-                      </optgroup>
-                      <optgroup label="System">
-                        {voices.filter(v => v.type === 'system').map(voice => (
-                          <option key={voice.id} value={voice.id}>{voice.name}</option>
-                        ))}
-                      </optgroup>
-                    </select>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center text-[10px] font-bold text-white/40 uppercase tracking-widest">
-                       <span>Vitesse</span>
-                       <span className="text-orange-500 font-mono text-xs">{speed}x</span>
-                    </div>
-                    <input 
-                      type="range" min="0.5" max="2" step="0.1" value={speed}
-                      onChange={(e) => setSpeed(parseFloat(e.target.value))}
-                      className="w-full accent-orange-500 h-1 bg-white/10 rounded-full appearance-none cursor-pointer"
-                    />
-                  </div>
-
-                  <button
-                    onClick={() => downloadChunk(currentChunkIndex)}
-                    className="w-full flex items-center justify-center gap-2 py-4 bg-white/5 hover:bg-white/10 rounded-2xl transition-all text-[11px] font-black uppercase tracking-widest"
-                  >
-                    <Download size={16} />
-                    <span>Sauvegarder en .WAV</span>
-                  </button>
-                </div>
-
-                <div className="p-6 bg-white/[0.02] border border-white/5 rounded-[32px]">
-                   <p className="text-[10px] font-bold text-white/30 uppercase mb-4 tracking-widest">File d'attente</p>
-                   <div className="space-y-3">
-                      {[0, 1, 2].map(offset => {
-                        const idx = currentChunkIndex + offset;
-                        if (idx >= chunks.length) return null;
-                        return (
-                          <div key={idx} className="flex items-center justify-between group">
-                             <div className="flex items-center gap-3">
-                               <span className={cn(
-                                 "text-[10px] font-mono",
-                                 idx === currentChunkIndex ? "text-orange-500" : "opacity-20"
-                               )}>
-                                 {String(idx + 1).padStart(2, '0')}
-                               </span>
-                               <span className={cn(
-                                 "text-xs truncate max-w-[150px]",
-                                 idx === currentChunkIndex ? "font-bold" : "opacity-40"
-                               )}>
-                                 Partie {idx + 1}
-                               </span>
-                             </div>
-                             {cachedIndices.has(idx) && (
-                               <div className="w-1.5 h-1.5 bg-green-500 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
-                             )}
+                    <div className="relative aspect-[4/3] bg-white/[0.02] border border-white/5 rounded-[60px] flex items-center justify-center overflow-hidden">
+                       <div className="absolute inset-0 bg-gradient-to-br from-orange-500/5 to-transparent" />
+                       <div className="relative group grayscale hover:grayscale-0 transition-all duration-700">
+                          <div className={cn(
+                             "w-48 h-64 bg-[#111] rounded-2xl shadow-[0_40px_80px_-20px_rgba(0,0,0,0.8)] border border-white/10 flex flex-col items-center justify-center p-8 text-center transition-transform duration-500",
+                             isPlaying && "scale-105"
+                          )}>
+                             <Headphones size={48} className="text-orange-500 mb-6" />
+                             <p className="text-[10px] uppercase font-bold tracking-[0.3em] text-white/40">Lecture en cours</p>
                           </div>
-                        );
-                      })}
-                   </div>
-                </div>
-              </div>
+                          {isPlaying && (
+                             <div className="absolute -inset-4 border border-orange-500/20 rounded-[32px] animate-ping opacity-20" />
+                          )}
+                       </div>
+                       
+                       <div className="absolute bottom-12 left-12 right-12 flex items-center justify-between">
+                          <div className="space-y-1">
+                             <p className="text-[10px] uppercase font-black tracking-widest text-white/20">Segment actuel</p>
+                             <p className="text-2xl font-mono font-bold text-orange-500">{String(currentChunkIndex + 1).padStart(2, '0')}</p>
+                          </div>
+                          <button 
+                             onClick={() => downloadChunk(currentChunkIndex)}
+                             className="p-4 bg-white/5 hover:bg-white/10 rounded-2xl text-white/40 hover:text-white transition-all flex items-center gap-3"
+                          >
+                             <Download size={18} />
+                             <span className="text-[10px] font-bold uppercase tracking-widest">Offline</span>
+                          </button>
+                       </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="p-8 bg-white/[0.03] border border-white/10 rounded-[40px] space-y-8 backdrop-blur-2xl shadow-2xl">
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center text-[10px] font-bold text-white/40 uppercase tracking-widest">
+                           <span>Vitesse</span>
+                           <span className="text-orange-500 font-mono text-sm">{speed}x</span>
+                        </div>
+                        <input 
+                          type="range" min="0.5" max="2" step="0.1" value={speed}
+                          onChange={(e) => setSpeed(parseFloat(e.target.value))}
+                          className="w-full accent-orange-500 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="pt-4 border-t border-white/5">
+                        <p className="text-[10px] font-bold text-white/30 uppercase mb-6 tracking-[0.2em] text-center">Contrôles Vocaux</p>
+                        <select 
+                          value={selectedVoice?.id || ''} 
+                          onChange={(e) => {
+                            const v = voices.find(v => v.id === e.target.value);
+                            if (v) { setSelectedVoice(v); stopPlayback(); }
+                          }}
+                          className="w-full bg-black/40 border border-white/10 rounded-2xl px-5 py-4 text-sm focus:ring-1 focus:ring-orange-500 appearance-none text-center font-bold"
+                        >
+                          <optgroup label="✨ IA">
+                            {voices.filter(v => v.type === 'ai').map(voice => (
+                              <option key={voice.id} value={voice.id}>{voice.name}</option>
+                            ))}
+                          </optgroup>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="p-8 bg-white/[0.02] border border-white/5 rounded-[40px] h-[300px] overflow-hidden flex flex-col">
+                      <p className="text-[10px] font-bold text-white/20 uppercase mb-6 tracking-widest shrink-0">Segments Audio</p>
+                      <div className="overflow-y-auto space-y-3 custom-scrollbar flex-1 pr-2">
+                        {chunks.map((_, idx) => (
+                           <button 
+                              key={idx}
+                              onClick={() => startPlayback(idx)}
+                              className={cn(
+                                "w-full p-4 rounded-2xl flex items-center justify-between transition-all group",
+                                idx === currentChunkIndex ? "bg-orange-500/10 border border-orange-500/20" : "hover:bg-white/5 border border-transparent"
+                              )}
+                           >
+                              <div className="flex items-center gap-4">
+                                 <span className={cn(
+                                    "text-[10px] font-mono",
+                                    idx === currentChunkIndex ? "text-orange-500" : "opacity-20"
+                                 )}>{String(idx + 1).padStart(2, '0')}</span>
+                                 <span className={cn(
+                                    "text-xs font-bold",
+                                    idx === currentChunkIndex ? "text-white" : "text-white/40"
+                                 )}>Segment {idx + 1}</span>
+                              </div>
+                              {cachedIndices.has(idx) ? (
+                                 <div className="w-2 h-2 bg-green-500 rounded-full shadow-[0_0_10px_rgba(34,197,94,0.5)]" />
+                              ) : (
+                                 <Download size={12} className="opacity-0 group-hover:opacity-20" />
+                              )}
+                           </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
       </main>
 
       <AnimatePresence>
-        {fileName && !isProcessing && (
+        {viewMode === 'player' && fileName && !isProcessing && (
           <motion.div
             initial={{ y: 100 }} animate={{ y: 0 }} exit={{ y: 100 }}
             className={cn(
