@@ -234,6 +234,8 @@ function chunkText(text, chunkSize = 600) {
 // --- PDF Extraction (Vanilla) ---
 
 import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs';
+import { get, set } from 'https://cdn.jsdelivr.net/npm/idb-keyval@6/+esm';
+
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs';
 
 async function extractPdf(file) {
@@ -308,11 +310,11 @@ async function generateGeminiAudio(text, voiceId) {
 
 async function getAudio(text, voiceId, bookId, index) {
     const cacheKey = `audio_${bookId}_${index}`;
-    let data = await idbKeyval.get(cacheKey);
+    let data = await get(cacheKey);
     if (data) return data;
 
     data = await generateGeminiAudio(text, voiceId);
-    await idbKeyval.set(cacheKey, data);
+    await set(cacheKey, data);
     return data;
 }
 
