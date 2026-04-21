@@ -1,18 +1,221 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>LivrAudio PDF</title>
-    <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="theme-color" content="#050505" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <link rel="apple-touch-icon" href="https://picsum.photos/seed/audiobook-icon-192/192/192" />
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LivrAudio - Votre Bibliothèque Audio IA</title>
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs" type="module"></script>
+    <script src="https://unpkg.com/idb-keyval@6.2.2/dist/index.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Playfair+Display:ital,wght@1,900&display=swap" rel="stylesheet">
+    <style>
+        @theme {
+            --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+            --font-serif: "Playfair Display", ui-serif, Georgia, serif;
+        }
+        body { font-family: var(--font-sans); }
+        .font-serif-italic { font-family: var(--font-serif); font-style: italic; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.05); border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(59, 130, 246, 0.2); }
+        .shadow-glow { box-shadow: 0 0 15px rgba(59, 130, 246, 0.5); }
+        [v-cloak] { display: none; }
+    </style>
+</head>
+<body class="bg-[#020617] text-slate-100 overflow-hidden selection:bg-blue-500/30">
+    <div id="root" class="flex h-screen w-full relative">
+        <!-- API Setup Overlay -->
+        <div id="setup-overlay" class="hidden fixed inset-0 z-[1000] bg-[#020617]/95 backdrop-blur-xl flex items-center justify-center p-6">
+            <div class="max-w-md w-full bg-[#0f172a] border border-white/10 rounded-[40px] p-8 md:p-10 shadow-3xl space-y-8">
+                <div class="space-y-4">
+                    <div class="w-16 h-16 bg-blue-600 rounded-[24px] flex items-center justify-center shadow-lg shadow-blue-500/20 mx-auto">
+                        <i data-lucide="key" class="text-white w-8 h-8"></i>
+                    </div>
+                    <div class="text-center">
+                        <h2 class="text-3xl font-black tracking-tighter text-white">Configuration</h2>
+                        <p class="text-white/40 text-xs mt-2 leading-relaxed">Entrez vos clés Gemini API (une par ligne) pour commencer l'aventure.</p>
+                    </div>
+                </div>
+                <div class="space-y-4">
+                    <textarea id="keys-input" placeholder="Clé 1&#10;Clé 2..." class="w-full h-32 bg-black/40 border border-white/10 rounded-2xl px-6 py-4 text-sm font-mono text-blue-400 focus:ring-2 focus:ring-blue-600 outline-none resize-none"></textarea>
+                    <button id="save-keys-btn" class="w-full bg-blue-600 hover:bg-blue-500 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-2xl transition-all active:scale-95">
+                        Enregistrer et démarrer
+                    </button>
+                    <p class="text-[9px] text-center text-white/10 italic">Vos clés sont stockées localement dans votre navigateur.</p>
+                </div>
+            </div>
+        </div>
 
+        <!-- Sidebar -->
+        <aside id="sidebar" class="fixed inset-y-0 left-0 w-[320px] bg-[#0f172a]/95 backdrop-blur-2xl border-r border-white/5 flex flex-col z-[250] transition-transform duration-300">
+            <div class="p-8 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
+                        <i data-lucide="headphones" class="text-white"></i>
+                    </div>
+                    <h1 class="font-black text-xl tracking-tighter text-white">LivrAudio</h1>
+                </div>
+                <button id="close-sidebar" class="md:hidden p-2 text-white/40 hover:text-white">
+                    <i data-lucide="chevron-left"></i>
+                </button>
+            </div>
+
+            <div class="px-6 pb-6 border-b border-white/5">
+                <div id="dropzone" class="border-2 border-dashed border-white/10 p-5 rounded-[24px] cursor-pointer hover:border-blue-500/50 transition-all flex flex-col items-center gap-3 group">
+                    <div class="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <i data-lucide="plus" class="text-blue-500"></i>
+                    </div>
+                    <div class="text-center">
+                        <span class="block text-[10px] uppercase font-black tracking-widest text-white/40">Ajouter un PDF</span>
+                        <input type="file" id="file-input" accept=".pdf" class="hidden">
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex-1 overflow-y-auto px-4 py-6 space-y-2 custom-scrollbar">
+                <p class="px-4 text-[10px] uppercase font-black tracking-[0.2em] text-white/20 mb-4">Bibliothèque</p>
+                <div id="library-list" class="space-y-2">
+                    <!-- Library items will be injected here -->
+                </div>
+            </div>
+
+            <div class="p-8 mt-auto border-t border-white/5">
+                <div class="p-4 bg-white/5 rounded-3xl border border-white/5 space-y-3">
+                    <div class="flex items-center gap-3">
+                        <div class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+                        <span class="text-[9px] font-black uppercase tracking-widest text-white/40">Génération Auto</span>
+                    </div>
+                    <p class="text-[9px] leading-relaxed text-white/20 font-medium">Nous générons les suites de votre livre en tâche de fond.</p>
+                </div>
+                <button id="settings-btn" class="w-full mt-4 flex items-center justify-center gap-2 p-4 rounded-2xl border border-white/5 bg-white/[0.02] hover:bg-white/5 transition-all text-[10px] uppercase font-black tracking-widest text-white/40 hover:text-white">
+                    <i data-lucide="settings" class="w-4 h-4"></i>
+                    Mes Clés API
+                </button>
+            </div>
+        </aside>
+
+        <!-- Sidebar Toggle -->
+        <button id="toggle-sidebar" class="fixed top-1/2 -translate-y-1/2 z-[200] w-6 h-28 bg-[#0f172a] border border-white/10 rounded-r-2xl flex items-center justify-center hover:bg-blue-600 transition-all text-white/40 hover:text-white shadow-2xl left-[320px]">
+             <i data-lucide="chevron-left" id="toggle-icon"></i>
+        </button>
+
+        <!-- Main Content -->
+        <main id="main-content" class="flex-1 relative overflow-y-auto h-screen scroll-smooth ml-[320px] transition-all">
+            <div class="absolute inset-0 bg-blue-600/5 blur-[120px] rounded-full -top-[50%] -left-[20%] w-[100%] h-[100%] animate-pulse pointer-events-none"></div>
+            
+            <!-- Empty State -->
+            <div id="empty-state" class="hidden flex flex-col items-center justify-center min-h-screen text-center p-8 max-w-2xl mx-auto">
+                <div class="w-32 h-32 bg-blue-600/10 rounded-[48px] flex items-center justify-center mb-12 relative">
+                    <div class="absolute inset-0 bg-blue-600/20 blur-2xl animate-pulse"></div>
+                    <i data-lucide="book-open" class="text-blue-500 relative z-10 w-16 h-16"></i>
+                </div>
+                <h2 class="text-6xl font-black tracking-tighter mb-6 leading-none text-white text-center">
+                    Votre bibliothèque <br><span class="text-blue-500 font-serif-italic">réinventée</span>.
+                </h2>
+                <p class="text-slate-400 text-xl font-medium mb-12 leading-relaxed text-center">
+                    Importez vos PDF et laissez notre IA les transformer en une expérience d'écoute totalement automatique.
+                </p>
+                <div id="cta-btn" class="bg-blue-600 hover:bg-blue-500 text-white px-12 py-6 rounded-full font-black text-sm uppercase tracking-[0.2em] shadow-2xl shadow-blue-600/40 transition-all active:scale-95 flex items-center gap-4 cursor-pointer">
+                    <i data-lucide="plus" class="w-6 h-6"></i>
+                    Choisir un PDF
+                </div>
+            </div>
+
+            <!-- Processing State -->
+            <div id="loading-state" class="hidden flex flex-col items-center justify-center min-h-screen gap-10">
+                <i data-lucide="loader-2" class="animate-spin text-blue-500 w-20 h-20"></i>
+                <div class="text-center space-y-2">
+                    <h3 class="text-3xl font-black tracking-tighter uppercase">Synchronisation</h3>
+                    <p class="text-white/20 text-[10px] uppercase tracking-widest font-black italic">Découpage intelligent en segments audio...</p>
+                </div>
+            </div>
+
+            <!-- Player View -->
+            <div id="player-view" class="hidden w-full max-w-2xl mx-auto p-8 pt-24 mb-40 flex flex-col gap-12">
+                <div class="space-y-12">
+                    <div class="space-y-6 text-center">
+                        <div class="relative group max-w-[300px] mx-auto">
+                            <div class="absolute -inset-10 bg-blue-600/10 blur-[120px] rounded-full opacity-30 group-hover:opacity-50 transition-opacity"></div>
+                            <div class="relative aspect-[3/4] bg-slate-900/80 backdrop-blur-3xl rounded-[60px] border border-white/10 shadow-2xl flex items-center justify-center overflow-hidden">
+                                <div class="flex flex-col items-center gap-6 px-10 text-center">
+                                    <div id="player-artwork" class="w-32 h-32 bg-blue-600/10 rounded-[36px] flex items-center justify-center shadow-inner relative transition-shadow">
+                                        <i data-lucide="headphones" class="text-blue-500 w-14 h-14" id="artwork-icon"></i>
+                                    </div>
+                                    <div class="space-y-1">
+                                        <p id="current-part-num" class="text-5xl font-serif-italic text-blue-500/20 leading-none">#1</p>
+                                        <p class="text-[10px] uppercase font-black tracking-[0.4em] text-white/20">Segment en cours</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="space-y-3">
+                            <h1 id="book-title" class="text-6xl font-black tracking-tighter leading-[0.9] text-white truncate">Titre du Livre</h1>
+                            <div class="flex items-center justify-center gap-3">
+                                <span class="h-px w-8 bg-blue-500/20"></span>
+                                <span class="text-blue-500 font-black uppercase text-[10px] tracking-[0.4em]">Lecture Continue</span>
+                                <span class="h-px w-8 bg-blue-500/20"></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-[#0f172a]/60 backdrop-blur-3xl border border-white/5 rounded-[40px] p-12 relative overflow-hidden shadow-2xl">
+                        <p id="chunk-text" class="text-2xl leading-relaxed text-white/80 font-medium italic relative z-10">Texte du segment...</p>
+                    </div>
+                </div>
+
+                <div class="space-y-10">
+                    <div class="bg-[#0f172a]/40 backdrop-blur-3xl border border-white/5 rounded-[40px] p-8 space-y-10">
+                        <div class="space-y-6">
+                            <label class="text-[10px] font-black uppercase tracking-[0.4em] text-white/20 block text-center italic">Paramètre de Voix</label>
+                            <select id="voice-select" class="w-full bg-black/50 border border-white/10 rounded-full px-8 py-5 text-sm font-bold text-center appearance-none cursor-pointer text-white">
+                                <!-- Voices will be injected here -->
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="bg-white/[0.01] border border-white/5 rounded-[40px] p-8">
+                        <label class="text-[10px] font-black uppercase tracking-[0.4em] text-white/10 italic mb-8 block px-2">File de Séquences</label>
+                        <div id="chunks-list" class="space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar pr-4">
+                            <!-- Chunks will be injected here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Player Bar -->
+        <div id="player-bar" class="hidden fixed bottom-0 left-[320px] right-0 p-8 z-[100] transition-all">
+            <div class="max-w-4xl mx-auto bg-[#0a101f]/90 backdrop-blur-3xl border border-white/10 p-8 rounded-[60px] shadow-3xl shadow-blue-900/40">
+                <div class="w-full h-1 bg-white/5 rounded-full overflow-hidden mb-8">
+                    <div id="progress-bar" class="h-full bg-blue-500 shadow-glow w-0"></div>
+                </div>
+                <div class="flex items-center justify-between gap-10">
+                    <div class="flex items-center gap-6 flex-1 min-w-0">
+                        <div class="w-16 h-16 bg-blue-600 rounded-[28px] flex items-center justify-center shadow-lg shadow-blue-600/20 shrink-0">
+                            <i data-lucide="volume-2" class="text-white w-7 h-7"></i>
+                        </div>
+                        <div class="truncate">
+                            <h4 id="bar-title" class="font-black truncate text-xl text-white">Titre</h4>
+                            <p id="bar-subtitle" class="text-[9px] text-white/30 uppercase tracking-[0.4em] font-black">PARTIE 1 / 10</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-8">
+                        <button id="prev-btn" class="p-4 rounded-full hover:bg-white/5 text-white disabled:opacity-10">
+                            <i data-lucide="skip-back" class="w-8 h-8"></i>
+                        </button>
+                        <button id="play-btn" class="w-24 h-24 bg-blue-600 hover:bg-blue-500 rounded-[36px] flex items-center justify-center transition-all shadow-3xl shadow-blue-600/40">
+                            <i data-lucide="play" id="play-icon" class="w-11 h-11 text-white fill-current translate-x-1"></i>
+                        </button>
+                        <button id="next-btn" class="p-4 rounded-full hover:bg-white/5 text-white disabled:opacity-10">
+                            <i data-lucide="skip-forward" class="w-8 h-8"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js" type="module"></script>
+</body>
+</html>
