@@ -1,3 +1,6 @@
+import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs';
+import { get, set } from 'https://cdn.jsdelivr.net/npm/idb-keyval@6/+esm';
+
 // Configuration and State
 let appState = {
     apiKeys: [],
@@ -232,9 +235,6 @@ function chunkText(text, chunkSize = 600) {
 }
 
 // --- PDF Extraction (Vanilla) ---
-
-import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs';
-import { get, set } from 'https://cdn.jsdelivr.net/npm/idb-keyval@6/+esm';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs';
 
