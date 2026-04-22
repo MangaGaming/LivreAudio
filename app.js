@@ -18,7 +18,8 @@ let appState = {
     audioStartTime: 0,
     playbackId: 0,
     cachedIndices: new Set(),
-    localTts: null
+    localTts: null,
+    loadedModelId: null
 };
 
 function loadKeys() {
@@ -36,7 +37,8 @@ function saveKeys(keysArray) {
 }
 
 const AI_VOICES = [
-    { id: 'piper:fr_FR-siwis-medium', name: 'Piper - Amélie (Local/FR 🇫🇷)', type: 'local' },
+    { id: 'piper:fr_FR-upmc-medium', name: 'Piper - Thomas (Local/FR 👨)', type: 'local' },
+    { id: 'piper:fr_FR-siwis-low', name: 'Piper - Amélie (Local/FR 👩)', type: 'local' },
     { id: 'Puck', name: 'Gemini - Puck (Cloud/FR)', type: 'cloud' },
     { id: 'Charon', name: 'Gemini - Charon (Cloud/FR)', type: 'cloud' },
     { id: 'Kore', name: 'Gemini - Kore (Cloud/FR)', type: 'cloud' },
@@ -322,21 +324,39 @@ async function generateGeminiAudio(text, voiceId) {
 }
 
 async function generateLocalAudio(text, voiceId) {
-    if (!appState.localTts) {
-        setLoading(true, "Moteur Vocal Piper (120MB)...");
+    const modelName = voiceId.split(':')[1];
+    const fullModelId = `piper-${modelName}`;
+
+    if (!appState.localTts || appState.loadedModelId !== fullModelId) {
+        setLoading(true, `Moteur ${modelName}... (120MB)`);
         try {
-            console.log("[TTS] Loading Transformers.js Piper model...");
-            const { pipeline } = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3/+esm");
+            console.log(`[TTS] Loading Transformers.js Piper model: ${fullModelId}`);
+            const { pipeline, env } = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3/+esm");
             
-            const modelName = voiceId.split(':')[1];
-            appState.localTts = await pipeline('text-to-speech', `onnx-community/piper-${modelName}`, {
+            env.allowRemoteModels = true;
+            env.allowLocalModels = false;
+
+            // Try stable Xenova repo first
+            appState.localTts = await pipeline('text-to-speech', `Xenova/${fullModelId}`, {
                 dtype: 'q8',
                 device: 'wasm',
             });
-            console.log("[TTS] Piper engine ready.");
+            appState.loadedModelId = fullModelId;
+            console.log("[TTS] Piper neural engine ready.");
         } catch (e) {
             console.error("[TTS] Local Model Error:", e);
-            throw new Error(`Échec de Piper local: ${e.message}`);
+            try {
+                 const { pipeline } = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3/+esm");
+                 appState.localTts = await pipeline('text-to-speech', `onnx-community/${fullModelId}`, {
+                    dtype: 'q8',
+                    device: 'wasm',
+                });
+                appState.loadedModelId = fullModelId;
+                console.log("[TTS] Piper neural engine ready (community fallback).");
+            } catch (e2) {
+                console.error("[TTS] Fallback also failed:", e2);
+                throw new Error(`Échec de Piper local: ${e.message}.`);
+            }
         } finally {
             setLoading(false);
         }
@@ -515,7 +535,9 @@ function startProgressInterval(duration) {
 
 function setLoading(isLoading, text = null) {
     const playIcon = document.getElementById('play-icon');
-    const subtitle = document.querySelector('#loading-state p');
+    const loadingState = document.getElementById('loading-state');
+    const subtitle = loadingState ? loadingState.querySelector('p') : null;
+    
     if (text && subtitle) subtitle.textContent = text;
     
     // Also try to update the bar subtitle if we are in player view
@@ -529,7 +551,7 @@ function setLoading(isLoading, text = null) {
         playIcon?.classList.remove('animate-spin');
         updateControlIcons();
     }
-    lucide.createIcons();
+    if (window.lucide) lucide.createIcons();
 }
 
 function updateControlIcons() {
