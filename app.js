@@ -85,31 +85,32 @@ function renderLibrary() {
     
     if (appState.library.length === 0) {
         list.innerHTML = `
-            <div class="h-40 flex flex-col items-center justify-center text-center opacity-10">
-                <i data-lucide="library" class="mb-2"></i>
-                <p class="text-[10px] uppercase font-black">Aucun livre</p>
+            <div class="h-40 flex flex-col items-center justify-center text-center opacity-5 animate-fade-in">
+                <i data-lucide="library" class="mb-4 w-12 h-12"></i>
+                <p class="text-[10px] uppercase font-black tracking-widest">Vide</p>
             </div>
         `;
         lucide.createIcons();
         return;
     }
 
-    appState.library.forEach(book => {
+    appState.library.forEach((book, idx) => {
         const item = document.createElement('div');
         const isActive = appState.currentBook && appState.currentBook.id === book.id;
-        item.className = `p-4 rounded-[28px] group transition-all flex items-center gap-4 cursor-pointer relative ${isActive ? 'bg-blue-600 shadow-xl shadow-blue-600/20' : 'hover:bg-white/5'}`;
+        item.style.animationDelay = `${idx * 0.1}s`;
+        item.className = `p-5 rounded-[32px] group transition-all flex items-center gap-5 cursor-pointer relative animate-slide-up ${isActive ? 'bg-indigo-600 shadow-2xl shadow-indigo-600/30' : 'hover:bg-white/5'}`;
         
         item.innerHTML = `
-            <div class="w-10 h-14 rounded-lg shadow-lg flex items-center justify-center shrink-0 ${isActive ? 'bg-white/20' : 'bg-white/5'}">
-                <i data-lucide="file-text" class="w-5 h-5 ${isActive ? 'text-white' : 'text-blue-500/40'}"></i>
+            <div class="w-12 h-16 rounded-2xl shadow-2xl flex items-center justify-center shrink-0 ${isActive ? 'bg-white/20' : 'bg-indigo-600/10'}">
+                <i data-lucide="file-text" class="w-6 h-6 ${isActive ? 'text-white' : 'text-indigo-400'}"></i>
             </div>
             <div class="flex-1 min-w-0">
-                <h4 class="text-[11px] font-black truncate leading-tight ${isActive ? 'text-white' : 'text-slate-200'}">${book.name.replace('.pdf', '')}</h4>
-                <p class="text-[8px] uppercase tracking-widest mt-1 font-black ${isActive ? 'text-white/60' : 'text-white/20'}">
+                <h4 class="text-xs font-black truncate leading-tight ${isActive ? 'text-white' : 'text-slate-200'}">${book.name.replace('.pdf', '')}</h4>
+                <p class="text-[9px] uppercase tracking-[0.3em] mt-2 font-black ${isActive ? 'text-white/60' : 'text-white/10'}">
                     ${book.lastIndex + 1} SÉQUENCES
                 </p>
             </div>
-            <button class="delete-btn opacity-0 group-hover:opacity-40 hover:!opacity-100 p-2 rounded-xl transition-all ${isActive ? 'text-white' : 'hover:text-red-500'}">
+            <button class="delete-btn opacity-0 group-hover:opacity-40 hover:!opacity-100 p-3 rounded-2xl transition-all ${isActive ? 'text-white' : 'hover:text-red-500'}">
                 <i data-lucide="trash-2" class="w-4 h-4"></i>
             </button>
         `;
@@ -154,15 +155,21 @@ async function selectBook(book) {
 function showView(viewName) {
     const views = ['empty', 'loading', 'player'];
     views.forEach(v => {
-        document.getElementById(`${v}-state`)?.classList.add('hidden');
-        document.getElementById(`${v}-view`)?.classList.add('hidden');
+        const state = document.getElementById(`${v}-state`);
+        const view = document.getElementById(`${v}-view`);
+        if (state) state.classList.add('hidden');
+        if (view) view.classList.add('hidden');
     });
     
     if (viewName === 'player') {
-        document.getElementById('player-view').classList.remove('hidden');
+        const playerView = document.getElementById('player-view');
+        playerView.classList.remove('hidden');
+        playerView.classList.add('animate-fade-in');
         document.getElementById('player-bar').classList.remove('hidden');
     } else {
-        document.getElementById(`${viewName}-state`).classList.remove('hidden');
+        const viewState = document.getElementById(`${viewName}-state`);
+        viewState.classList.remove('hidden');
+        viewState.classList.add('animate-fade-in');
         document.getElementById('player-bar').classList.add('hidden');
     }
     
@@ -175,11 +182,8 @@ function updatePlayerUI() {
     document.getElementById('book-title').textContent = appState.currentBook.name.replace('.pdf', '');
     document.getElementById('bar-title').textContent = appState.currentBook.name.replace('.pdf', '');
     document.getElementById('current-part-num').textContent = `#${appState.currentIndex + 1}`;
-    document.getElementById('bar-subtitle').textContent = `PARTIE ${appState.currentIndex + 1} / ${appState.currentChunks.length}`;
+    document.getElementById('bar-subtitle').textContent = `PARTIE ${appState.currentIndex + 1}`;
     document.getElementById('chunk-text').textContent = appState.currentChunks[appState.currentIndex]?.text || "...";
-    
-    const progress = (appState.currentIndex / (appState.currentChunks.length || 1)) * 100;
-    // We update this via progress bar interval during play
 }
 
 function renderVoices() {
@@ -203,12 +207,13 @@ function renderChunks() {
     appState.currentChunks.forEach((chunk, idx) => {
         const item = document.createElement('button');
         const isActive = idx === appState.currentIndex;
-        item.className = `w-full p-5 rounded-[24px] flex items-center justify-between transition-all group ${isActive ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/30' : 'hover:bg-white/5'}`;
+        item.style.animationDelay = `${idx * 0.05}s`;
+        item.className = `w-full p-6 rounded-[32px] flex items-center justify-between transition-all group animate-slide-up ${isActive ? 'bg-indigo-600/20 text-white border border-indigo-500/30' : 'hover:bg-white/5'}`;
         
         item.innerHTML = `
-            <div class="flex items-center gap-5">
-                <span class="text-[10px] font-mono ${isActive ? 'text-white/60' : 'text-white/10'}">${String(idx + 1).padStart(2, '0')}</span>
-                <span class="text-sm font-black tracking-tight ${isActive ? 'text-white' : 'text-white/30 group-hover:text-white/60'}">Partie ${idx + 1}</span>
+            <div class="flex items-center gap-6">
+                <span class="text-[10px] font-mono ${isActive ? 'text-indigo-400' : 'text-white/10'}">${String(idx + 1).padStart(2, '0')}</span>
+                <span class="text-sm font-black tracking-tight ${isActive ? 'text-white' : 'text-white/20 group-hover:text-white/60'}">Séquence ${idx + 1}</span>
             </div>
         `;
         
