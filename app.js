@@ -37,8 +37,7 @@ function saveKeys(keysArray) {
 }
 
 const AI_VOICES = [
-    { id: 'piper:fr_FR-upmc-medium', name: 'Piper - Thomas (Local/FR 👨)', type: 'local' },
-    { id: 'piper:fr_FR-siwis-low', name: 'Piper - Amélie (Local/FR 👩)', type: 'local' },
+    { id: 'kokoro:ff_siwis', name: 'Amélie (Local/Neural 🇫🇷)', type: 'local' },
     { id: 'Puck', name: 'Gemini - Puck (Cloud/FR)', type: 'cloud' },
     { id: 'Charon', name: 'Gemini - Charon (Cloud/FR)', type: 'cloud' },
     { id: 'Kore', name: 'Gemini - Kore (Cloud/FR)', type: 'cloud' },
@@ -324,46 +323,29 @@ async function generateGeminiAudio(text, voiceId) {
 }
 
 async function generateLocalAudio(text, voiceId) {
-    const modelName = voiceId.split(':')[1];
-    const fullModelId = `piper-${modelName}`;
-
-    if (!appState.localTts || appState.loadedModelId !== fullModelId) {
-        setLoading(true, `Moteur ${modelName}... (120MB)`);
+    if (!appState.localTts) {
+        setLoading(true, "Moteur Neural (80MB)...");
         try {
-            console.log(`[TTS] Loading Transformers.js Piper model: ${fullModelId}`);
-            const { pipeline, env } = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3/+esm");
+            console.log("[TTS] Loading Local Neural Engine (Kokoro)...");
+            const { pipeline } = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3/+esm");
             
-            env.allowRemoteModels = true;
-            env.allowLocalModels = false;
-
-            // Try stable Xenova repo first
-            appState.localTts = await pipeline('text-to-speech', `Xenova/${fullModelId}`, {
+            appState.localTts = await pipeline('text-to-speech', 'onnx-community/Kokoro-82M-v1.0-ONNX', {
                 dtype: 'q8',
                 device: 'wasm',
             });
-            appState.loadedModelId = fullModelId;
-            console.log("[TTS] Piper neural engine ready.");
+            console.log("[TTS] Local neural engine ready.");
         } catch (e) {
             console.error("[TTS] Local Model Error:", e);
-            try {
-                 const { pipeline } = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3/+esm");
-                 appState.localTts = await pipeline('text-to-speech', `onnx-community/${fullModelId}`, {
-                    dtype: 'q8',
-                    device: 'wasm',
-                });
-                appState.loadedModelId = fullModelId;
-                console.log("[TTS] Piper neural engine ready (community fallback).");
-            } catch (e2) {
-                console.error("[TTS] Fallback also failed:", e2);
-                throw new Error(`Échec de Piper local: ${e.message}.`);
-            }
+            throw new Error(`Échec du moteur local: ${e.message}`);
         } finally {
             setLoading(false);
         }
     }
 
-    const output = await appState.localTts(text);
+    const voice = voiceId.split(':')[1] || 'ff_siwis';
+    const output = await appState.localTts(text, { voice });
     
+    // float32 audio output from transformers.js
     const float32 = output.audio;
     const int16 = new Int16Array(float32.length);
     for (let i = 0; i < float32.length; i++) {
@@ -377,7 +359,7 @@ async function getAudio(text, voiceId, bookId, index) {
     let data = await get(cacheKey);
     if (data) return data;
 
-    if (voiceId.startsWith('piper:')) {
+    if (voiceId.startsWith('kokoro:')) {
         data = await generateLocalAudio(text, voiceId);
     } else {
         data = await generateGeminiAudio(text, voiceId);
@@ -388,10 +370,9 @@ async function getAudio(text, voiceId, bookId, index) {
 }
 
 function getCtx() {
-    const sampleRate = appState.selectedVoice.startsWith('piper:') ? 22050 : 24000;
-    if (!appState.audioContext || appState.audioContext.sampleRate !== sampleRate) {
-        if (appState.audioContext) appState.audioContext.close();
-        appState.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate });
+    // Normalizing all neural voices to 24000Hz context
+    if (!appState.audioContext) {
+        appState.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
     }
     return appState.audioContext;
 }
@@ -410,43 +391,10 @@ async function startPlayback(index) {
     renderChunks();
     
     const text = appState.currentChunks[index].text;
-    const isNative = appState.selectedVoice.startsWith('native:');
 
-    if (isNative) {
-        appState.isPlaying = true;
-        updateControlIcons();
-        
-        const utterance = new SpeechSynthesisUtterance(text);
-        const voiceName = appState.selectedVoice.split(':')[1];
-        utterance.voice = appState.nativeVoices.find(v => v.name === voiceName);
-        utterance.lang = 'fr-FR';
-        
-        utterance.onend = () => {
-            if (pid === appState.playbackId) {
-                if (index < appState.currentChunks.length - 1) {
-                    startPlayback(index + 1);
-                } else {
-                    appState.isPlaying = false;
-                    updateControlIcons();
-                }
-            }
-        };
-        
-        utterance.onerror = () => {
-            appState.isPlaying = false;
-            updateControlIcons();
-        };
-
-        window.speechSynthesis.speak(utterance);
-        
-        // Progress bar simulation for native (rough)
-        const estDuration = text.length * 60; // Rough 60ms per char
-        appState.audioStartTime = Date.now();
-        startProgressIntervalNative(estDuration, pid);
-    } else {
-        setLoading(true);
-        try {
-            const data = await getAudio(text, appState.selectedVoice, appState.currentBook.id, index);
+    setLoading(true);
+    try {
+        const data = await getAudio(text, appState.selectedVoice, appState.currentBook.id, index);
             if (pid !== appState.playbackId) return;
 
             const ctx = getCtx();
