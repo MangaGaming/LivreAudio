@@ -18,7 +18,6 @@ let appState = {
     audioStartTime: 0,
     playbackId: 0,
     cachedIndices: new Set(),
-    nativeVoices: [],
     localTts: null
 };
 
@@ -37,8 +36,7 @@ function saveKeys(keysArray) {
 }
 
 const AI_VOICES = [
-    { id: 'kokoro:ff_siwis', name: 'Kokoro - Amélie (Local/FR 🇫🇷)', type: 'local' },
-    { id: 'kokoro:af_heart', name: 'Kokoro - Heart (Local/EN 🇺🇸)', type: 'local' },
+    { id: 'piper:fr_FR-siwis-medium', name: 'Piper - Amélie (Local/FR 🇫🇷)', type: 'local' },
     { id: 'Puck', name: 'Gemini - Puck (Cloud/FR)', type: 'cloud' },
     { id: 'Charon', name: 'Gemini - Charon (Cloud/FR)', type: 'cloud' },
     { id: 'Kore', name: 'Gemini - Kore (Cloud/FR)', type: 'cloud' },
@@ -54,21 +52,7 @@ async function init() {
     loadLibrary();
     setupEventListeners();
     renderLibrary();
-    
-    // Initialize voices
-    if ('speechSynthesis' in window) {
-        const loadNativeVoices = () => {
-            const voices = window.speechSynthesis.getVoices();
-            appState.nativeVoices = voices.filter(v => v.lang.startsWith('fr'));
-            renderVoices();
-        };
-        loadNativeVoices();
-        if (window.speechSynthesis.onvoiceschanged !== undefined) {
-            window.speechSynthesis.onvoiceschanged = loadNativeVoices;
-        }
-    } else {
-        renderVoices();
-    }
+    renderVoices();
     
     if (!hasKeys) {
         document.getElementById('setup-overlay').classList.remove('hidden');
@@ -208,26 +192,12 @@ function renderVoices() {
     const select = document.getElementById('voice-select');
     select.innerHTML = ''; // Clear previous
 
-    // Cloud Voices
     AI_VOICES.forEach(v => {
         const opt = document.createElement('option');
         opt.value = v.id;
         opt.textContent = v.name;
         select.appendChild(opt);
     });
-
-    // Native Voices
-    if (appState.nativeVoices.length > 0) {
-        const group = document.createElement('optgroup');
-        group.label = "VOIX SYSTÈME (BASIQUE)";
-        appState.nativeVoices.forEach((v, i) => {
-            const opt = document.createElement('option');
-            opt.value = `native:${v.name}`;
-            opt.textContent = `${v.name} (Système)`;
-            group.appendChild(opt);
-        });
-        select.appendChild(group);
-    }
 
     select.onchange = (e) => {
         appState.selectedVoice = e.target.value;
@@ -353,36 +323,28 @@ async function generateGeminiAudio(text, voiceId) {
 
 async function generateLocalAudio(text, voiceId) {
     if (!appState.localTts) {
-        setLoading(true, "Initialisation Neural Engine Local (80MB)...");
+        setLoading(true, "Moteur Vocal Piper (120MB)...");
         try {
-            console.log("[Kokoro] Loading neural engine via esm.sh...");
-            // esm.sh is more reliable for automatic ESM conversion
-            const moduleUrl = "https://esm.sh/kokoro-js@0.1.3";
-            const mod = await import(moduleUrl);
+            console.log("[TTS] Loading Transformers.js Piper model...");
+            const { pipeline } = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3/+esm");
             
-            // Handle different export patterns if necessary
-            const KokoroTTS = mod.KokoroTTS || mod.default?.KokoroTTS || mod.default;
-            
-            if (!KokoroTTS) {
-                throw new Error("Impossible de trouver la classe KokoroTTS dans le module importé.");
-            }
-            
-            appState.localTts = await KokoroTTS.from_pretrained("hexgrad/Kokoro-82M");
-            console.log("[Kokoro] Neural engine loaded successfully.");
+            const modelName = voiceId.split(':')[1];
+            appState.localTts = await pipeline('text-to-speech', `onnx-community/piper-${modelName}`, {
+                dtype: 'q8',
+                device: 'wasm',
+            });
+            console.log("[TTS] Piper engine ready.");
         } catch (e) {
-            console.error("[Kokoro] Failed to load model:", e);
-            throw new Error(`Erreur Moteur Neural: ${e.message}. Veuillez vérifier votre connexion ou utiliser une voix Cloud.`);
+            console.error("[TTS] Local Model Error:", e);
+            throw new Error(`Échec de Piper local: ${e.message}`);
         } finally {
             setLoading(false);
         }
     }
 
-    const ttsVoice = voiceId.split(':')[1];
-    const audio = await appState.localTts.generate(text, {
-        voice: ttsVoice,
-    });
+    const output = await appState.localTts(text);
     
-    const float32 = audio.audio;
+    const float32 = output.audio;
     const int16 = new Int16Array(float32.length);
     for (let i = 0; i < float32.length; i++) {
         int16[i] = Math.max(-1, Math.min(1, float32[i])) * 32767;
@@ -395,7 +357,7 @@ async function getAudio(text, voiceId, bookId, index) {
     let data = await get(cacheKey);
     if (data) return data;
 
-    if (voiceId.startsWith('kokoro:')) {
+    if (voiceId.startsWith('piper:')) {
         data = await generateLocalAudio(text, voiceId);
     } else {
         data = await generateGeminiAudio(text, voiceId);
@@ -406,8 +368,10 @@ async function getAudio(text, voiceId, bookId, index) {
 }
 
 function getCtx() {
-    if (!appState.audioContext) {
-        appState.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+    const sampleRate = appState.selectedVoice.startsWith('piper:') ? 22050 : 24000;
+    if (!appState.audioContext || appState.audioContext.sampleRate !== sampleRate) {
+        if (appState.audioContext) appState.audioContext.close();
+        appState.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate });
     }
     return appState.audioContext;
 }
@@ -553,6 +517,10 @@ function setLoading(isLoading, text = null) {
     const playIcon = document.getElementById('play-icon');
     const subtitle = document.querySelector('#loading-state p');
     if (text && subtitle) subtitle.textContent = text;
+    
+    // Also try to update the bar subtitle if we are in player view
+    const barSubtitle = document.getElementById('bar-subtitle');
+    if (isLoading && text && barSubtitle) barSubtitle.textContent = text;
     
     if (isLoading) {
         playIcon?.setAttribute('data-lucide', 'loader-2');
