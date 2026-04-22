@@ -219,11 +219,11 @@ function renderVoices() {
     // Native Voices
     if (appState.nativeVoices.length > 0) {
         const group = document.createElement('optgroup');
-        group.label = "VOIX SYSTÈME (LOCAL)";
+        group.label = "VOIX SYSTÈME (BASIQUE)";
         appState.nativeVoices.forEach((v, i) => {
             const opt = document.createElement('option');
             opt.value = `native:${v.name}`;
-            opt.textContent = `${v.name} (Local)`;
+            opt.textContent = `${v.name} (Système)`;
             group.appendChild(opt);
         });
         select.appendChild(group);
@@ -353,18 +353,18 @@ async function generateGeminiAudio(text, voiceId) {
 
 async function generateLocalAudio(text, voiceId) {
     if (!appState.localTts) {
-        setLoading(true);
+        setLoading(true, "Initialisation Neural Engine Local (80MB)...");
         try {
-            console.log("[Kokoro] Loading neural engine...");
-            const { KokoroTTS } = await import("https://esm.sh/kokoro-js@0.1.3");
-            appState.localTts = await KokoroTTS.from_pretrained("hexgrad/Kokoro-82M", {
-                dtype: "q8",
-                device: "wasm",
-            });
-            console.log("[Kokoro] Neural engine ready.");
+            console.log("[Kokoro] Loading neural engine (v0.1.3)...");
+            const mod = await import("https://cdn.jsdelivr.net/npm/kokoro-js@0.1.3/+esm");
+            const KokoroTTS = mod.KokoroTTS;
+            
+            // Auto-detect best config instead of forcing wasm/q8
+            appState.localTts = await KokoroTTS.from_pretrained("hexgrad/Kokoro-82M");
+            console.log("[Kokoro] Neural engine loaded successfully.");
         } catch (e) {
-            console.error("Local Model Error:", e);
-            throw new Error("Échec du chargement du moteur neural local.");
+            console.error("[Kokoro] Failed to load model:", e);
+            throw new Error(`Erreur Moteur Neural: ${e.message}. Essayez d'utiliser une voix Cloud pour le moment.`);
         } finally {
             setLoading(false);
         }
@@ -542,8 +542,11 @@ function startProgressInterval(duration) {
 
 // --- UI Helpers ---
 
-function setLoading(isLoading) {
+function setLoading(isLoading, text = null) {
     const playIcon = document.getElementById('play-icon');
+    const subtitle = document.querySelector('#loading-state p');
+    if (text && subtitle) subtitle.textContent = text;
+    
     if (isLoading) {
         playIcon?.setAttribute('data-lucide', 'loader-2');
         playIcon?.classList.add('animate-spin');
