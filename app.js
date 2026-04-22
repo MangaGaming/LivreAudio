@@ -355,16 +355,23 @@ async function generateLocalAudio(text, voiceId) {
     if (!appState.localTts) {
         setLoading(true, "Initialisation Neural Engine Local (80MB)...");
         try {
-            console.log("[Kokoro] Loading neural engine (v0.1.3)...");
-            const mod = await import("https://cdn.jsdelivr.net/npm/kokoro-js@0.1.3/+esm");
-            const KokoroTTS = mod.KokoroTTS;
+            console.log("[Kokoro] Loading neural engine via esm.sh...");
+            // esm.sh is more reliable for automatic ESM conversion
+            const moduleUrl = "https://esm.sh/kokoro-js@0.1.3";
+            const mod = await import(moduleUrl);
             
-            // Auto-detect best config instead of forcing wasm/q8
+            // Handle different export patterns if necessary
+            const KokoroTTS = mod.KokoroTTS || mod.default?.KokoroTTS || mod.default;
+            
+            if (!KokoroTTS) {
+                throw new Error("Impossible de trouver la classe KokoroTTS dans le module importé.");
+            }
+            
             appState.localTts = await KokoroTTS.from_pretrained("hexgrad/Kokoro-82M");
             console.log("[Kokoro] Neural engine loaded successfully.");
         } catch (e) {
             console.error("[Kokoro] Failed to load model:", e);
-            throw new Error(`Erreur Moteur Neural: ${e.message}. Essayez d'utiliser une voix Cloud pour le moment.`);
+            throw new Error(`Erreur Moteur Neural: ${e.message}. Veuillez vérifier votre connexion ou utiliser une voix Cloud.`);
         } finally {
             setLoading(false);
         }
