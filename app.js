@@ -17,7 +17,9 @@ let appState = {
     currentSource: null,
     audioStartTime: 0,
     playbackId: 0,
-    cachedIndices: new Set()
+    cachedIndices: new Set(),
+    nativeVoices: [],
+    localTts: null
 };
 
 function loadKeys() {
@@ -35,11 +37,13 @@ function saveKeys(keysArray) {
 }
 
 const AI_VOICES = [
-    { id: 'Puck', name: 'Puck (Chaleureux)', lang: 'fr' },
-    { id: 'Charon', name: 'Charon (Profond)', lang: 'fr' },
-    { id: 'Kore', name: 'Kore (Clair)', lang: 'fr' },
-    { id: 'Fenrir', name: 'Fenrir (Robuste)', lang: 'fr' },
-    { id: 'Zephyr', name: 'Zephyr (Doux)', lang: 'fr' },
+    { id: 'kokoro:ff_siwis', name: 'Kokoro - Amélie (Local/FR 🇫🇷)', type: 'local' },
+    { id: 'kokoro:af_heart', name: 'Kokoro - Heart (Local/EN 🇺🇸)', type: 'local' },
+    { id: 'Puck', name: 'Gemini - Puck (Cloud/FR)', type: 'cloud' },
+    { id: 'Charon', name: 'Gemini - Charon (Cloud/FR)', type: 'cloud' },
+    { id: 'Kore', name: 'Gemini - Kore (Cloud/FR)', type: 'cloud' },
+    { id: 'Fenrir', name: 'Gemini - Fenrir (Cloud/FR)', type: 'cloud' },
+    { id: 'Zephyr', name: 'Gemini - Zephyr (Cloud/FR)', type: 'cloud' },
 ];
 
 async function init() {
@@ -50,7 +54,21 @@ async function init() {
     loadLibrary();
     setupEventListeners();
     renderLibrary();
-    renderVoices();
+    
+    // Initialize voices
+    if ('speechSynthesis' in window) {
+        const loadNativeVoices = () => {
+            const voices = window.speechSynthesis.getVoices();
+            appState.nativeVoices = voices.filter(v => v.lang.startsWith('fr'));
+            renderVoices();
+        };
+        loadNativeVoices();
+        if (window.speechSynthesis.onvoiceschanged !== undefined) {
+            window.speechSynthesis.onvoiceschanged = loadNativeVoices;
+        }
+    } else {
+        renderVoices();
+    }
     
     if (!hasKeys) {
         document.getElementById('setup-overlay').classList.remove('hidden');
@@ -188,16 +206,36 @@ function updatePlayerUI() {
 
 function renderVoices() {
     const select = document.getElementById('voice-select');
+    select.innerHTML = ''; // Clear previous
+
+    // Cloud Voices
     AI_VOICES.forEach(v => {
         const opt = document.createElement('option');
         opt.value = v.id;
         opt.textContent = v.name;
         select.appendChild(opt);
     });
+
+    // Native Voices
+    if (appState.nativeVoices.length > 0) {
+        const group = document.createElement('optgroup');
+        group.label = "VOIX SYSTÈME (LOCAL)";
+        appState.nativeVoices.forEach((v, i) => {
+            const opt = document.createElement('option');
+            opt.value = `native:${v.name}`;
+            opt.textContent = `${v.name} (Local)`;
+            group.appendChild(opt);
+        });
+        select.appendChild(group);
+    }
+
     select.onchange = (e) => {
         appState.selectedVoice = e.target.value;
         stopPlayback();
     };
+    
+    // Restore selection
+    if (appState.selectedVoice) select.value = appState.selectedVoice;
 }
 
 function renderChunks() {
@@ -313,12 +351,49 @@ async function generateGeminiAudio(text, voiceId) {
     throw lastErr || new Error("Épuisement ou invalidité de toutes les clés Gemini.");
 }
 
+async function generateLocalAudio(text, voiceId) {
+    if (!appState.localTts) {
+        setLoading(true);
+        try {
+            console.log("[Kokoro] Loading neural engine...");
+            const { KokoroTTS } = await import("https://esm.sh/kokoro-js@0.1.3");
+            appState.localTts = await KokoroTTS.from_pretrained("hexgrad/Kokoro-82M", {
+                dtype: "q8",
+                device: "wasm",
+            });
+            console.log("[Kokoro] Neural engine ready.");
+        } catch (e) {
+            console.error("Local Model Error:", e);
+            throw new Error("Échec du chargement du moteur neural local.");
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    const ttsVoice = voiceId.split(':')[1];
+    const audio = await appState.localTts.generate(text, {
+        voice: ttsVoice,
+    });
+    
+    const float32 = audio.audio;
+    const int16 = new Int16Array(float32.length);
+    for (let i = 0; i < float32.length; i++) {
+        int16[i] = Math.max(-1, Math.min(1, float32[i])) * 32767;
+    }
+    return int16.buffer;
+}
+
 async function getAudio(text, voiceId, bookId, index) {
-    const cacheKey = `audio_${bookId}_${index}`;
+    const cacheKey = `audio_${bookId}_${index}_${voiceId}`;
     let data = await get(cacheKey);
     if (data) return data;
 
-    data = await generateGeminiAudio(text, voiceId);
+    if (voiceId.startsWith('kokoro:')) {
+        data = await generateLocalAudio(text, voiceId);
+    } else {
+        data = await generateGeminiAudio(text, voiceId);
+    }
+    
     await set(cacheKey, data);
     return data;
 }
@@ -343,30 +418,19 @@ async function startPlayback(index) {
     updatePlayerUI();
     renderChunks();
     
-    setLoading(true);
-    
-    try {
-        const text = appState.currentChunks[index].text;
-        const data = await getAudio(text, appState.selectedVoice, appState.currentBook.id, index);
+    const text = appState.currentChunks[index].text;
+    const isNative = appState.selectedVoice.startsWith('native:');
+
+    if (isNative) {
+        appState.isPlaying = true;
+        updateControlIcons();
         
-        if (pid !== appState.playbackId) return;
-
-        const ctx = getCtx();
-        if (ctx.state === 'suspended') await ctx.resume();
-
-        // Gemini audio is 16-bit linear PCM mono 24kHz
-        const int16 = new Int16Array(data);
-        const float32 = new Float32Array(int16.length);
-        for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
-
-        const buffer = ctx.createBuffer(1, float32.length, 24000);
-        buffer.getChannelData(0).set(float32);
-
-        const source = ctx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(ctx.destination);
+        const utterance = new SpeechSynthesisUtterance(text);
+        const voiceName = appState.selectedVoice.split(':')[1];
+        utterance.voice = appState.nativeVoices.find(v => v.name === voiceName);
+        utterance.lang = 'fr-FR';
         
-        source.onended = () => {
+        utterance.onend = () => {
             if (pid === appState.playbackId) {
                 if (index < appState.currentChunks.length - 1) {
                     startPlayback(index + 1);
@@ -376,22 +440,66 @@ async function startPlayback(index) {
                 }
             }
         };
+        
+        utterance.onerror = () => {
+            appState.isPlaying = false;
+            updateControlIcons();
+        };
 
-        appState.currentSource = source;
-        appState.audioStartTime = ctx.currentTime;
-        appState.isPlaying = true;
-        source.start(0);
-        updateControlIcons();
-        startProgressInterval(buffer.duration);
-    } catch (e) {
-        console.error(e);
-        alert(e.message);
-    } finally {
-        setLoading(false);
+        window.speechSynthesis.speak(utterance);
+        
+        // Progress bar simulation for native (rough)
+        const estDuration = text.length * 60; // Rough 60ms per char
+        appState.audioStartTime = Date.now();
+        startProgressIntervalNative(estDuration, pid);
+    } else {
+        setLoading(true);
+        try {
+            const data = await getAudio(text, appState.selectedVoice, appState.currentBook.id, index);
+            if (pid !== appState.playbackId) return;
+
+            const ctx = getCtx();
+            if (ctx.state === 'suspended') await ctx.resume();
+
+            const int16 = new Int16Array(data);
+            const float32 = new Float32Array(int16.length);
+            for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
+
+            const buffer = ctx.createBuffer(1, float32.length, 24000);
+            buffer.getChannelData(0).set(float32);
+
+            const source = ctx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(ctx.destination);
+            
+            source.onended = () => {
+                if (pid === appState.playbackId) {
+                    if (index < appState.currentChunks.length - 1) {
+                        startPlayback(index + 1);
+                    } else {
+                        appState.isPlaying = false;
+                        updateControlIcons();
+                    }
+                }
+            };
+
+            appState.currentSource = source;
+            appState.audioStartTime = ctx.currentTime;
+            appState.isPlaying = true;
+            source.start(0);
+            updateControlIcons();
+            startProgressInterval(buffer.duration);
+        } catch (e) {
+            console.error(e);
+            alert(e.message);
+        } finally {
+            setLoading(false);
+        }
     }
 }
 
 function stopPlayback() {
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
     if (appState.currentSource) {
         try { appState.currentSource.stop(); } catch(e) {}
         appState.currentSource = null;
@@ -406,6 +514,18 @@ function togglePlay() {
     } else {
         startPlayback(appState.currentIndex);
     }
+}
+
+function startProgressIntervalNative(durationMs, pid) {
+    const bar = document.getElementById('progress-bar');
+    const update = () => {
+        if (!appState.isPlaying || pid !== appState.playbackId) return;
+        const elapsed = Date.now() - appState.audioStartTime;
+        const pct = Math.min((elapsed / durationMs) * 100, 100);
+        bar.style.width = `${pct}%`;
+        if (pct < 100) requestAnimationFrame(update);
+    };
+    requestAnimationFrame(update);
 }
 
 function startProgressInterval(duration) {
@@ -425,10 +545,10 @@ function startProgressInterval(duration) {
 function setLoading(isLoading) {
     const playIcon = document.getElementById('play-icon');
     if (isLoading) {
-        playIcon.setAttribute('data-lucide', 'loader-2');
-        playIcon.classList.add('animate-spin');
+        playIcon?.setAttribute('data-lucide', 'loader-2');
+        playIcon?.classList.add('animate-spin');
     } else {
-        playIcon.classList.remove('animate-spin');
+        playIcon?.classList.remove('animate-spin');
         updateControlIcons();
     }
     lucide.createIcons();
