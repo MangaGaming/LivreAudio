@@ -395,45 +395,44 @@ async function startPlayback(index) {
     setLoading(true);
     try {
         const data = await getAudio(text, appState.selectedVoice, appState.currentBook.id, index);
-            if (pid !== appState.playbackId) return;
+        if (pid !== appState.playbackId) return;
 
-            const ctx = getCtx();
-            if (ctx.state === 'suspended') await ctx.resume();
+        const ctx = getCtx();
+        if (ctx.state === 'suspended') await ctx.resume();
 
-            const int16 = new Int16Array(data);
-            const float32 = new Float32Array(int16.length);
-            for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
+        const int16 = new Int16Array(data);
+        const float32 = new Float32Array(int16.length);
+        for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
 
-            const buffer = ctx.createBuffer(1, float32.length, 24000);
-            buffer.getChannelData(0).set(float32);
+        const buffer = ctx.createBuffer(1, float32.length, 24000);
+        buffer.getChannelData(0).set(float32);
 
-            const source = ctx.createBufferSource();
-            source.buffer = buffer;
-            source.connect(ctx.destination);
-            
-            source.onended = () => {
-                if (pid === appState.playbackId) {
-                    if (index < appState.currentChunks.length - 1) {
-                        startPlayback(index + 1);
-                    } else {
-                        appState.isPlaying = false;
-                        updateControlIcons();
-                    }
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        
+        source.onended = () => {
+            if (pid === appState.playbackId) {
+                if (index < appState.currentChunks.length - 1) {
+                    startPlayback(index + 1);
+                } else {
+                    appState.isPlaying = false;
+                    updateControlIcons();
                 }
-            };
+            }
+        };
 
-            appState.currentSource = source;
-            appState.audioStartTime = ctx.currentTime;
-            appState.isPlaying = true;
-            source.start(0);
-            updateControlIcons();
-            startProgressInterval(buffer.duration);
-        } catch (e) {
-            console.error(e);
-            alert(e.message);
-        } finally {
-            setLoading(false);
-        }
+        appState.currentSource = source;
+        appState.audioStartTime = ctx.currentTime;
+        appState.isPlaying = true;
+        source.start(0);
+        updateControlIcons();
+        startProgressInterval(buffer.duration);
+    } catch (e) {
+        console.error(e);
+        alert(e.message);
+    } finally {
+        setLoading(false);
     }
 }
 
