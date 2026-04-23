@@ -328,7 +328,7 @@ async function generateLocalAudio(text, voiceId) {
         setLoading(true, "Moteur Neural (80MB)...");
         try {
             console.log("[TTS] Loading Local Neural Engine (Kokoro)...");
-            const { KokoroTTS } = await import("https://cdn.jsdelivr.net/npm/kokoro-js@1.1.2/+esm");
+            const { KokoroTTS } = await import("https://esm.sh/kokoro-js");
             
             appState.localTts = await KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
                 dtype: "q8",
