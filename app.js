@@ -37,12 +37,13 @@ function saveKeys(keysArray) {
 }
 
 const AI_VOICES = [
-    { id: 'kokoro:ff_siwis', name: 'Amélie (Local/Neural 🇫🇷)', type: 'local' },
-    { id: 'Puck', name: 'Gemini - Puck (Cloud/FR)', type: 'cloud' },
-    { id: 'Charon', name: 'Gemini - Charon (Cloud/FR)', type: 'cloud' },
-    { id: 'Kore', name: 'Gemini - Kore (Cloud/FR)', type: 'cloud' },
-    { id: 'Fenrir', name: 'Gemini - Fenrir (Cloud/FR)', type: 'cloud' },
-    { id: 'Zephyr', name: 'Gemini - Zephyr (Cloud/FR)', type: 'cloud' },
+    { id: 'kokoro:ff_siwis', name: 'Amélie (Neural 👩)', type: 'local' },
+    { id: 'kokoro:hf_alpha', name: 'Alphonse (Neural 👨)', type: 'local' },
+    { id: 'Puck', name: 'Gemini - Puck (Cloud 👨)', type: 'cloud' },
+    { id: 'Charon', name: 'Gemini - Charon (Cloud 👨)', type: 'cloud' },
+    { id: 'Kore', name: 'Gemini - Kore (Cloud 👩)', type: 'cloud' },
+    { id: 'Fenrir', name: 'Gemini - Fenrir (Cloud 👨)', type: 'cloud' },
+    { id: 'Zephyr', name: 'Gemini - Zephyr (Cloud 👩)', type: 'cloud' },
 ];
 
 async function init() {
@@ -327,11 +328,11 @@ async function generateLocalAudio(text, voiceId) {
         setLoading(true, "Moteur Neural (80MB)...");
         try {
             console.log("[TTS] Loading Local Neural Engine (Kokoro)...");
-            const { pipeline } = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3/+esm");
+            const { KokoroTTS } = await import("https://cdn.jsdelivr.net/npm/kokoro-js@1.1.2/+esm");
             
-            appState.localTts = await pipeline('text-to-speech', 'onnx-community/Kokoro-82M-v1.0-ONNX', {
-                dtype: 'q8',
-                device: 'wasm',
+            appState.localTts = await KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
+                dtype: "q8",
+                device: "wasm",
             });
             console.log("[TTS] Local neural engine ready.");
         } catch (e) {
@@ -343,9 +344,9 @@ async function generateLocalAudio(text, voiceId) {
     }
 
     const voice = voiceId.split(':')[1] || 'ff_siwis';
-    const output = await appState.localTts(text, { voice });
+    const output = await appState.localTts.generate(text, { voice });
     
-    // float32 audio output from transformers.js
+    // kokoro-js RawAudio.audio is a Float32Array
     const float32 = output.audio;
     const int16 = new Int16Array(float32.length);
     for (let i = 0; i < float32.length; i++) {
